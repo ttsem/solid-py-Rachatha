@@ -1,9 +1,21 @@
 import pyodbc
 from tradeRecord import TradeRecord
-from dbConnection import dbConnection
+from logger import logger
+import yaml
+import os
+
+def read_config():
+    config_path = os.path.join(os.path.dirname(__file__), 'config.yml')
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+config = read_config()
 
 class TradeProcessor:
     LOT_SIZE = 100000.0
+
+    def __init__(self):
+        self.config = config
 
     def process_trades(self, stream):
         # --- Read lines from stream ---
@@ -15,7 +27,7 @@ class TradeProcessor:
         for line in lines:
             fields = line.split(",")
 
-            if not trade_is_valid(fields, line_count):
+            if not is_valid_trade(fields, line_count):
                 line_count += 1
                 continue
 
@@ -23,11 +35,11 @@ class TradeProcessor:
             trades.append(trade)
             line_count += 1
 
-        if persist_trade(trades):
-            print(f"INFO: {len(trades)} trades processed")
+        if persist_trades(trades):
+            logger.info(f"{len(trades)} trades processed")
 
-def persist_trade(trades: list) -> bool:
-    connection_string = dbConnection.connection_string
+def persist_trades(trades: list) -> bool:
+    connection_string = config['database']['connection_string']
     with pyodbc.connect(connection_string) as conn:
         cursor = conn.cursor()
         try:
@@ -57,25 +69,25 @@ def extract_trade_information(fields: list) -> TradeRecord:
         trade_price
     )
 
-def trade_is_valid(fields: list, line_count: int) -> bool:
+def is_valid_trade(fields: list, line_count: int) -> bool:
     if len(fields) != 3:
-        print(f"WARN: Line {line_count} malformed. Only {len(fields)} field(s) found.")
+        logger.warning(f"Line {line_count} malformed. Only {len(fields)} field(s) found.")
         return False
 
     if len(fields[0]) != 6:
-        print(f"WARN: Trade currencies on line {line_count} malformed: '{fields[0]}'")
+        logger.warning(f"Trade currencies on line {line_count} malformed: '{fields[0]}'")
         return False
 
     try:
         int(fields[1])
     except ValueError:
-        print(f"WARN: Trade amount on line {line_count} not a valid integer: '{fields[1]}'")
+        logger.warning(f"Trade amount on line {line_count} not a valid integer: '{fields[1]}'")
         return False
 
     try:
         float(fields[2])
     except ValueError:
-        print(f"WARN: Trade price on line {line_count} not a valid decimal: '{fields[2]}'")
+        logger.warning(f"Trade price on line {line_count} not a valid decimal: '{fields[2]}'")
         return False
 
     return True
